@@ -1,0 +1,19 @@
+{
+  "name": "com.noodlehammer.tools",
+  "displayName": "Noodle Hammer Tools",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "A bundle of handy standalone Unity editor tools from Noodle Hammer.",
+  "author": {
+    "name": "Noodle Hammer"
+  },
+  "keywords": [
+    "unity",
+    "editor",
+    "tools",
+    "hierarchy",
+    "animator",
+    "transform",
+    "noodlehammer"
+  ]
+}

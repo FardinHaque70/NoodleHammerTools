@@ -1,0 +1,15 @@
+# Noodle Hammer Tools
+
+This UPM package is mirrored from the development source under `Assets/Noodle Hammer`.
+
+After making code changes in the Unity project, run `upm/sync_from_assets.sh` to refresh this package mirror.
+
+Standalone Unity editor tools packaged together under one `Noodle Hammer` UPM package.
+
+Included tools:
+
+- `Noodle Hammer Hierarchy`: smarter hierarchy icons, row styling, and settings.
+- `Noodle Hammer Animator`: editor playback controls and Avatar T-pose utilities on `Animator` inspectors.
+- `Noodle Hammer Transform`: quick reset, copy, and paste actions for `Transform` inspectors.
+
+Each tool lives in its own editor assembly so it can be removed independently without breaking the others.
