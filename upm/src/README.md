@@ -16,6 +16,21 @@ Each tool lives in its own editor assembly so it can be removed independently wi
 
 ## Install via Git UPM
 
+### Option 1: Unity Package Manager Git URL
+
+In Unity:
+
+1. Open `Window > Package Manager`
+2. Click the `+` button
+3. Choose `Add package from git URL...`
+4. Paste:
+
+```text
+https://github.com/FardinHaque70/NoodleHammerTools.git?path=/upm/src
+```
+
+### Option 2: Edit `Packages/manifest.json`
+
 Add this entry to your Unity project's `Packages/manifest.json`:
 
 ```json

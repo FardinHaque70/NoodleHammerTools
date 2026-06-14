@@ -16,6 +16,23 @@ This repo currently includes:
 
 ## Install With Git UPM
 
+### Option 1: Unity Package Manager Git URL
+
+In Unity:
+
+1. Open `Window > Package Manager`
+2. Click the `+` button
+3. Choose `Add package from git URL...`
+4. Paste this URL:
+
+```text
+https://github.com/FardinHaque70/NoodleHammerTools.git?path=/upm/src
+```
+
+Unity will download the package directly from this repository.
+
+### Option 2: Edit `manifest.json`
+
 Add this dependency to your Unity project's `Packages/manifest.json`:
 
 ```json
