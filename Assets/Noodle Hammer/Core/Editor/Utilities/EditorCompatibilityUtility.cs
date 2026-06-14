@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
+using System.Reflection;
 
 namespace NoodleHammer.Core.Editor
 {
@@ -10,6 +11,9 @@ namespace NoodleHammer.Core.Editor
 	/// </summary>
 	public static class EditorCompatibilityUtility
 	{
+		private static readonly MethodInfo EntityIdToObjectMethod =
+			typeof(EditorUtility).GetMethod("EntityIdToObject", BindingFlags.Public | BindingFlags.Static);
+
 		/// <summary>
 		/// Forces a repaint on all editor views including the Scene View.
 		/// </summary>
@@ -25,11 +29,12 @@ namespace NoodleHammer.Core.Editor
 		/// </summary>
 		public static Object InstanceIDToObject(int instanceId)
 		{
-#if UNITY_6000_0_OR_NEWER
-			return EditorUtility.EntityIdToObject(instanceId);
-#else
+			if (EntityIdToObjectMethod != null)
+			{
+				return EntityIdToObjectMethod.Invoke(null, new object[] { instanceId }) as Object;
+			}
+
 			return EditorUtility.InstanceIDToObject(instanceId);
-#endif
 		}
 	}
 }
