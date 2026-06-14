@@ -1,7 +1,9 @@
 {
   "name": "NoodleHammer.Transform.Editor",
   "rootNamespace": "NoodleHammer.Transform.Editor",
-  "references": [],
+  "references": [
+    "NoodleHammer.Core.Editor"
+  ],
   "includePlatforms": [
     "Editor"
   ],
