@@ -13,3 +13,15 @@ Included tools:
 - `Noodle Hammer Transform`: quick reset, copy, and paste actions for `Transform` inspectors.
 
 Each tool lives in its own editor assembly so it can be removed independently without breaking the others.
+
+## Install via Git UPM
+
+Add this entry to your Unity project's `Packages/manifest.json`:
+
+```json
+{
+  "dependencies": {
+    "com.noodlehammer.tools": "https://github.com/FardinHaque70/NoodleHammerTools.git?path=/upm/src"
+  }
+}
+```
