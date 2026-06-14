@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -40,24 +41,76 @@ namespace NoodleHammer.Hierarchy.Editor
 
     internal static class ImprovedHierarchyClassifier
     {
+        private const double CacheLifetimeSeconds = 0.1;
+
+        private struct CachedClassification
+        {
+            public ImprovedHierarchyIconInfo Result;
+            public double Timestamp;
+        }
+
+        /// <summary>
+        /// Intermediate analysis results from a single-pass scan of a component array.
+        /// Avoids allocating separate arrays or doing multiple passes.
+        /// </summary>
+        private struct ComponentScanResult
+        {
+            public bool HasMissingScript;
+            public int NonTransformCount;
+            public int UserScriptCount;
+            public Component FirstNonTransform;
+            public Component FirstUserComponent;
+        }
+
+        private static readonly Dictionary<int, CachedClassification> ClassificationCache = new();
+
+        static ImprovedHierarchyClassifier()
+        {
+            EditorApplication.hierarchyChanged += InvalidateCache;
+            Undo.undoRedoPerformed += InvalidateCache;
+        }
+
+        /// <summary>
+        /// Clears the entire classification cache.
+        /// </summary>
+        public static void InvalidateCache()
+        {
+            ClassificationCache.Clear();
+        }
+
+        /// <summary>
+        /// Removes a single entry from the classification cache.
+        /// </summary>
+        public static void InvalidateObject(int instanceId)
+        {
+            ClassificationCache.Remove(instanceId);
+        }
+
         public static ImprovedHierarchyIconInfo Analyze(GameObject gameObject)
         {
+            int instanceId = gameObject.GetInstanceID();
+
+            // Check cache -- use EditorApplication.timeSinceStartup which ticks reliably in Edit mode
+            if (ClassificationCache.TryGetValue(instanceId, out CachedClassification cached))
+            {
+                double age = EditorApplication.timeSinceStartup - cached.Timestamp;
+                if (age >= 0.0 && age < CacheLifetimeSeconds)
+                    return cached.Result;
+            }
+
             Component[] components = gameObject.GetComponents<Component>();
             if (components == null || components.Length == 0)
                 return default;
 
-            bool hasMissingScript = HasMissingScript(components);
-            int nonTransformCount = GetNonTransformCount(components);
-            int userScriptCount = GetUserScriptCount(components);
-            Component firstNonTransform = GetFirstNonTransformComponent(components);
-            Component firstUserComponent = GetFirstUserComponent(components);
+            // Single-pass scan of the component array
+            ComponentScanResult scan = ScanComponents(components);
 
-            ImprovedHierarchyRuleCategory category = Classify(hasMissingScript, nonTransformCount, userScriptCount);
+            ImprovedHierarchyRuleCategory category = Classify(scan.HasMissingScript, scan.NonTransformCount, scan.UserScriptCount);
             Component displayComponent = ResolveDisplayComponent(
                 gameObject,
                 components,
-                firstNonTransform,
-                firstUserComponent,
+                scan.FirstNonTransform,
+                scan.FirstUserComponent,
                 category);
             GUIContent content = GetContent(gameObject, displayComponent, category);
 
@@ -65,7 +118,52 @@ namespace NoodleHammer.Hierarchy.Editor
             if (ImprovedHierarchySettings.OverridePrefabIcons && IsPrefab(gameObject))
                 iconMode = ImprovedHierarchySettings.PrefabIconMode;
 
-            return new ImprovedHierarchyIconInfo(content, iconMode, category, hasMissingScript, userScriptCount);
+            ImprovedHierarchyIconInfo result = new ImprovedHierarchyIconInfo(content, iconMode, category, scan.HasMissingScript, scan.UserScriptCount);
+
+            ClassificationCache[instanceId] = new CachedClassification
+            {
+                Result = result,
+                Timestamp = EditorApplication.timeSinceStartup
+            };
+
+            return result;
+        }
+
+        /// <summary>
+        /// Single-pass scan: computes HasMissingScript, NonTransformCount, UserScriptCount,
+        /// FirstNonTransform, and FirstUserComponent all in one iteration.
+        /// </summary>
+        private static ComponentScanResult ScanComponents(Component[] components)
+        {
+            ComponentScanResult scan = default;
+
+            for (int i = 0; i < components.Length; i++)
+            {
+                Component component = components[i];
+
+                if (component == null)
+                {
+                    scan.HasMissingScript = true;
+                    continue;
+                }
+
+                if (component is UnityEngine.Transform)
+                    continue;
+
+                scan.NonTransformCount++;
+
+                if (scan.FirstNonTransform == null)
+                    scan.FirstNonTransform = component;
+
+                if (!IsUnityRelated(component))
+                {
+                    scan.UserScriptCount++;
+                    if (scan.FirstUserComponent == null)
+                        scan.FirstUserComponent = component;
+                }
+            }
+
+            return scan;
         }
 
         private static ImprovedHierarchyRuleCategory Classify(bool hasMissingScript, int nonTransformCount, int userScriptCount)
@@ -110,115 +208,33 @@ namespace NoodleHammer.Hierarchy.Editor
             return firstNonTransform ?? gameObject.transform;
         }
 
-        private static Component GetFirstNonTransformComponent(Component[] components)
-        {
-            if (components == null || components.Length == 0)
-                return null;
-
-            for (int i = 1; i < components.Length; i++)
-            {
-                if (components[i] == null)
-                    return null;
-
-                if (!(components[i] is UnityEngine.Transform))
-                    return components[i];
-            }
-
-            return components[0];
-        }
-
-        private static Component GetFirstUserComponent(Component[] components)
-        {
-            if (components == null)
-                return null;
-
-            for (int i = 1; i < components.Length; i++)
-            {
-                Component component = components[i];
-                if (component == null)
-                    return null;
-
-                if (!IsUnityRelated(component))
-                    return component;
-            }
-
-            return null;
-        }
-
-        private static int GetUserScriptCount(Component[] components)
-        {
-            if (components == null)
-                return 0;
-
-            int count = 0;
-            for (int i = 1; i < components.Length; i++)
-            {
-                Component component = components[i];
-                if (component == null)
-                    continue;
-
-                if (!IsUnityRelated(component))
-                    count++;
-            }
-
-            return count;
-        }
-
-        private static int GetNonTransformCount(Component[] components)
-        {
-            if (components == null)
-                return 0;
-
-            int count = 0;
-            for (int i = 0; i < components.Length; i++)
-            {
-                if (!(components[i] is UnityEngine.Transform))
-                    count++;
-            }
-
-            return count;
-        }
-
-        private static bool HasMissingScript(Component[] components)
-        {
-            if (components == null)
-                return false;
-
-            for (int i = 0; i < components.Length; i++)
-            {
-                if (components[i] == null)
-                    return true;
-            }
-
-            return false;
-        }
-
+        /// <summary>
+        /// Creates an owned copy of GUIContent so cached entries aren't invalidated by
+        /// Unity's internal ObjectContent/IconContent pooling.
+        /// </summary>
         private static GUIContent GetContent(GameObject gameObject, Component component, ImprovedHierarchyRuleCategory category)
         {
             if (category == ImprovedHierarchyRuleCategory.MissingScripts)
             {
                 GUIContent missing = EditorGUIUtility.IconContent("console.warnicon.sml");
-                missing.text = null;
-                missing.tooltip = ImprovedHierarchySettings.EnableTooltips ? "Missing Script" : string.Empty;
-                return missing;
+                string tooltip = ImprovedHierarchySettings.EnableTooltips ? "Missing Script" : string.Empty;
+                return new GUIContent(missing.image, tooltip);
             }
 
             if (category == ImprovedHierarchyRuleCategory.NoScripts)
             {
                 GUIContent gameObjectContent = EditorGUIUtility.ObjectContent(gameObject, typeof(GameObject));
-                gameObjectContent.text = null;
-                gameObjectContent.tooltip = ImprovedHierarchySettings.EnableTooltips ? nameof(GameObject) : string.Empty;
-                return gameObjectContent;
+                string tooltip = ImprovedHierarchySettings.EnableTooltips ? nameof(GameObject) : string.Empty;
+                return new GUIContent(gameObjectContent.image, tooltip);
             }
 
             if (component == null)
                 return new GUIContent();
 
-            System.Type componentType = component.GetType();
+            Type componentType = component.GetType();
             GUIContent content = EditorGUIUtility.ObjectContent(component, componentType);
-            content.text = null;
-            content.tooltip = ImprovedHierarchySettings.EnableTooltips ? componentType.Name : string.Empty;
-            return content;
+            string componentTooltip = ImprovedHierarchySettings.EnableTooltips ? componentType.Name : string.Empty;
+            return new GUIContent(content.image, componentTooltip);
         }
 
         private static Component GetPriorityComponent(Component[] components, ImprovedHierarchyRuleCategory category)
@@ -251,12 +267,7 @@ namespace NoodleHammer.Hierarchy.Editor
             if (component == null)
                 return int.MinValue;
 
-            Type componentType = component.GetType();
-            string typeName = componentType.Name;
-            string namespaceValue = componentType.Namespace ?? string.Empty;
-            bool isUserComponent = !IsUnityRelated(component);
-            bool hasDefaultScriptIcon = HasDefaultScriptIcon(component);
-
+            // Type checks via 'is' are fast (single vtable lookup), do these first
             if (component is UnityEngine.Animator)
                 return 120;
             if (component is ParticleSystem)
@@ -269,10 +280,6 @@ namespace NoodleHammer.Hierarchy.Editor
                 return 108;
             if (component is Canvas || component is RectTransform)
                 return 106;
-            if (namespaceValue.StartsWith("UnityEngine.UI", StringComparison.Ordinal))
-                return 104;
-            if (typeName == "NavMeshAgent")
-                return 102;
             if (component is Rigidbody || component is Rigidbody2D)
                 return 100;
             if (component is Collider || component is Collider2D || component is CharacterController)
@@ -284,8 +291,20 @@ namespace NoodleHammer.Hierarchy.Editor
             if (component is TrailRenderer || component is LineRenderer)
                 return 92;
 
+            // String-based checks only when is-checks didn't match
+            Type componentType = component.GetType();
+            string namespaceValue = componentType.Namespace ?? string.Empty;
+
+            if (namespaceValue.StartsWith("UnityEngine.UI", StringComparison.Ordinal))
+                return 104;
+            if (componentType.Name == "NavMeshAgent")
+                return 102;
+
+            bool isUserComponent = !IsUnityRelatedByNamespace(namespaceValue);
+
             if (isUserComponent)
             {
+                bool hasDefaultScriptIcon = HasDefaultScriptIcon(component, componentType);
                 if (!hasDefaultScriptIcon)
                     return 90;
 
@@ -295,12 +314,12 @@ namespace NoodleHammer.Hierarchy.Editor
             return 60;
         }
 
-        private static bool HasDefaultScriptIcon(Component component)
+        private static bool HasDefaultScriptIcon(Component component, Type componentType)
         {
             if (component == null)
                 return false;
 
-            GUIContent content = EditorGUIUtility.ObjectContent(component, component.GetType());
+            GUIContent content = EditorGUIUtility.ObjectContent(component, componentType);
             Texture image = content.image;
             if (image == null || string.IsNullOrEmpty(image.name))
                 return false;
@@ -319,6 +338,11 @@ namespace NoodleHammer.Hierarchy.Editor
                 return false;
 
             string namespaceValue = component.GetType().Namespace;
+            return !string.IsNullOrEmpty(namespaceValue) && IsUnityRelatedByNamespace(namespaceValue);
+        }
+
+        private static bool IsUnityRelatedByNamespace(string namespaceValue)
+        {
             if (string.IsNullOrEmpty(namespaceValue))
                 return false;
 

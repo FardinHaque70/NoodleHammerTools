@@ -32,11 +32,15 @@ namespace NoodleHammer.Hierarchy.Editor
 
         public void ResetToDefaults()
         {
-            Undo.RecordObject(this, "Reset Improved Hierarchy Settings");
-            ImprovedHierarchySettings.ApplyDefaults(this);
-            EditorUtility.SetDirty(this);
-            AssetDatabase.SaveAssets();
-            EditorApplication.RepaintHierarchyWindow();
+            NoodleHammer.Core.Editor.ProjectSettingsUndoUtility.ResetToDefaultsWithUndo(
+                this,
+                "Reset Improved Hierarchy Settings",
+                () => ImprovedHierarchySettings.ApplyDefaults(this),
+                () =>
+                {
+                    NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(this);
+                    EditorApplication.RepaintHierarchyWindow();
+                });
         }
 
         private void OnValidate()
@@ -64,6 +68,7 @@ namespace NoodleHammer.Hierarchy.Editor
         private ImprovedHierarchySettingsAsset _defaultValues;
         private GUIContent _resetButtonContent;
         private int _sectionRowIndex;
+        private SerializedObject _trackedSerializedObject;
 
         private void OnEnable()
         {
@@ -75,6 +80,11 @@ namespace NoodleHammer.Hierarchy.Editor
             _resetButtonContent = EditorGUIUtility.IconContent("TreeEditor.Refresh");
             _resetButtonContent.text = string.Empty;
             _resetButtonContent.tooltip = "Reset this setting to its default value.";
+
+            _trackedSerializedObject = NoodleHammer.Core.Editor.ProjectSettingsUndoUtility
+                .CreateSerializedObject(
+                    (ImprovedHierarchySettingsAsset)target,
+                    PersistAndNotify);
         }
 
         private void OnDisable()
@@ -85,6 +95,12 @@ namespace NoodleHammer.Hierarchy.Editor
 
             if (_defaultValues != null)
                 DestroyImmediate(_defaultValues);
+        }
+
+        private void PersistAndNotify()
+        {
+            NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(target);
+            EditorApplication.RepaintHierarchyWindow();
         }
 
         public override void OnInspectorGUI()
@@ -385,7 +401,8 @@ namespace NoodleHammer.Hierarchy.Editor
             get
             {
                 if (_cachedAsset == null)
-                    _cachedAsset = GetOrCreateSettingsAsset();
+                    _cachedAsset = NoodleHammer.Core.Editor.ProjectSettingsAssetUtility
+                        .LoadOrCreate<ImprovedHierarchySettingsAsset>(AssetPath, ApplyDefaults);
 
                 return _cachedAsset;
             }
@@ -409,25 +426,8 @@ namespace NoodleHammer.Hierarchy.Editor
             }
         }
 
-        public static ImprovedHierarchySettingsAsset GetOrCreateSettingsAsset()
-        {
-            ImprovedHierarchySettingsAsset asset = AssetDatabase.LoadAssetAtPath<ImprovedHierarchySettingsAsset>(AssetPath);
-            if (asset != null)
-                return asset;
-
-            asset = TryLoadExistingSettingsAsset();
-            if (asset != null)
-                return asset;
-
-            ScriptRelativeAssetUtility.EnsureFolder(AssetDirectory);
-
-            asset = ScriptableObject.CreateInstance<ImprovedHierarchySettingsAsset>();
-            ApplyDefaults(asset);
-            AssetDatabase.CreateAsset(asset, AssetPath);
-            EditorUtility.SetDirty(asset);
-            AssetDatabase.SaveAssets();
-            return asset;
-        }
+        public static string AssetDirectory => "Assets/Noodle Hammer/Hierarchy/Settings";
+        public static string AssetPath => AssetDirectory + "/" + AssetFileName;
 
         public static void ApplyDefaults(ImprovedHierarchySettingsAsset asset)
         {
@@ -448,27 +448,6 @@ namespace NoodleHammer.Hierarchy.Editor
             asset.unityScriptsOnlyIconMode = D_UnityScriptsOnlyIconMode;
             asset.containsUserScriptsIconMode = D_ContainsUserScriptsIconMode;
             asset.prefabIconMode = D_PrefabIconMode;
-        }
-
-        public static string AssetDirectory => "Assets/NoodleHammer/Hierarchy/Settings";
-        public static string AssetPath => CombineAssetPath(AssetDirectory, AssetFileName);
-
-        private static ImprovedHierarchySettingsAsset TryLoadExistingSettingsAsset()
-        {
-            string path = ScriptRelativeAssetUtility.FindFirstAssetPathOfType<ImprovedHierarchySettingsAsset>();
-            return string.IsNullOrEmpty(path)
-                ? null
-                : AssetDatabase.LoadAssetAtPath<ImprovedHierarchySettingsAsset>(path);
-        }
-
-        private static string GetScriptDirectory()
-        {
-            return "Assets/NoodleHammer/Hierarchy/Settings";
-        }
-
-        private static string CombineAssetPath(string left, string right)
-        {
-            return ScriptRelativeAssetUtility.CombineAssetPath(left, right);
         }
     }
 }

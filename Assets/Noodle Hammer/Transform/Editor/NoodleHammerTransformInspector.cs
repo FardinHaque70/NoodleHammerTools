@@ -2,7 +2,6 @@
 using System;
 using UnityEditor;
 using UnityEngine;
-using UnityEditorInternal;
 
 namespace NoodleHammer.Transform.Editor
 {
@@ -12,10 +11,10 @@ namespace NoodleHammer.Transform.Editor
     {
         private static Type s_transformInspectorType;
 
-    private static Vector3 s_fullPositionBuffer;
-    private static Vector3 s_fullRotationBuffer;
-    private static Vector3 s_fullScaleBuffer;
-    private static bool s_hasFullBuffer;
+        private static Vector3 s_fullPositionBuffer;
+        private static Vector3 s_fullRotationBuffer;
+        private static Vector3 s_fullScaleBuffer;
+        private static bool s_hasFullBuffer;
 
         private UnityEditor.Editor _defaultEditor;
         private string _hoverTooltip;
@@ -40,6 +39,15 @@ namespace NoodleHammer.Transform.Editor
 
         public override void OnInspectorGUI()
         {
+            if (!TransformEditorSettings.Enabled)
+            {
+                if (_defaultEditor != null)
+                    _defaultEditor.OnInspectorGUI();
+                else
+                    DrawDefaultInspector();
+                return;
+            }
+
             if (Event.current.type == EventType.MouseMove || Event.current.type == EventType.MouseDrag)
                 Repaint();
 

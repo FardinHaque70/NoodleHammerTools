@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: bc12a5fa3b4434ce49b14d0d603e3740
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/ThumbnailSystem/ParticleThumbnailPersistentCache.cs
+  uploadId: 929392

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 79051e83b9a54cc09642cba3d7d9b0f6
+AssemblyDefinitionImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/PreviewSystem/HDRP/NoodleHammer.PreviewForge.Editor.HDRP.asmdef
+  uploadId: 929392

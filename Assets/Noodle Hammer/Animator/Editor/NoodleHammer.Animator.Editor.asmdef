@@ -1,7 +1,9 @@
 {
   "name": "NoodleHammer.Animator.Editor",
   "rootNamespace": "NoodleHammer.Animator.Editor",
-  "references": [],
+  "references": [
+    "NoodleHammer.Core.Editor"
+  ],
   "includePlatforms": [
     "Editor"
   ],

@@ -1,7 +1,9 @@
 {
   "name": "NoodleHammer.Hierarchy.Editor",
   "rootNamespace": "NoodleHammer.Hierarchy.Editor",
-  "references": [],
+  "references": [
+    "NoodleHammer.Core.Editor"
+  ],
   "includePlatforms": [
     "Editor"
   ],

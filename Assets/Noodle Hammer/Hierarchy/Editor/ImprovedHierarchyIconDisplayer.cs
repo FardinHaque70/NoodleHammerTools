@@ -1,6 +1,5 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -18,45 +17,76 @@ namespace NoodleHammer.Hierarchy.Editor
         private const float MissingBadgeWidth = 14f;
         private const float MissingBadgeInset = 2f;
 
+        // Pre-allocated colors to avoid per-row new Color() allocations
+        private static readonly Color AlternatingRowEven = new Color(1f, 1f, 1f, 0.012f);
+        private static readonly Color AlternatingRowOdd = new Color(0f, 0f, 0f, 0.06f);
+        private static readonly Color DividerSelected = new Color(1f, 1f, 1f, 0.10f);
+        private static readonly Color DividerNormal = new Color(1f, 1f, 1f, 0.06f);
+        private static readonly Color InactiveAlpha = new Color(1f, 1f, 1f, 0.5f);
+        private static readonly Color MissingBadgeBackground = new Color(0.72f, 0.32f, 0.16f, 0.95f);
+        private static readonly Color MissingBadgeBorder = new Color(0f, 0f, 0f, 0.42f);
+
+        // Cached per-repaint-pass state to avoid repeated property lookups and allocations
         private static readonly HashSet<int> AdditionalSelectedInstanceIds = new HashSet<int>();
+        private static readonly HashSet<int> SelectionIdSet = new HashSet<int>();
 
-        private static readonly System.Type SceneHierarchyWindowType =
-            typeof(EditorWindow).Assembly.GetType("UnityEditor.SceneHierarchyWindow");
-
-        private static EditorWindow s_hierarchyWindow;
         private static bool s_hierarchyHasFocus;
         private static GUIStyle s_missingBadgeStyle;
-        private static PropertyInfo s_sceneHierarchyProperty;
-        private static MethodInfo s_sceneHierarchyIsExpandedMethod;
-        private static MethodInfo s_instanceIdToObjectMethod;
+        private static GUIContent s_missingBadgeContent;
+        private static bool s_updateRegistered;
+        private static int s_cachedSelectionVersion;
+
+        // Settings cached once per repaint pass to avoid per-row property chain traversal
+        private static bool s_cachedActive;
+        private static bool s_cachedEnableAlternatingRows;
+        private static bool s_cachedEnableRowDividers;
+        private static bool s_cachedEnableTreeGuides;
+        private static Color s_cachedGuideColor;
+        private static bool s_settingsCachedThisEvent;
+        private static EventType s_lastCachedEventType;
+        private static int s_lastCachedEventHash;
 
         static ImprovedHierarchyIconDisplayer()
         {
             EditorApplication.hierarchyWindowItemOnGUI -= OnHierarchyWindowItemGUI;
             EditorApplication.hierarchyWindowItemOnGUI += OnHierarchyWindowItemGUI;
-            EditorApplication.update -= OnEditorUpdate;
-            EditorApplication.update += OnEditorUpdate;
+            NoodleHammer.Core.Editor.EditorUpdateLoop.EnsureRegistered(ref s_updateRegistered, OnEditorUpdate);
         }
 
         private static void OnEditorUpdate()
         {
-            if (s_hierarchyWindow == null)
-            {
-                ResolveHierarchyWindow();
-            }
+            if (NoodleHammer.Core.Editor.EditorTransitionGuard.IsUnsafeTransition())
+                return;
 
-            s_hierarchyHasFocus = EditorWindow.focusedWindow != null && EditorWindow.focusedWindow == s_hierarchyWindow;
+            EditorWindow hierarchyWindow = HierarchyReflectionBridge.ResolveHierarchyWindow();
+            if (hierarchyWindow == null)
+                HierarchyReflectionBridge.InvalidateWindow();
+
+            s_hierarchyHasFocus = EditorWindow.focusedWindow != null && EditorWindow.focusedWindow == hierarchyWindow;
             AdditionalSelectedInstanceIds.Clear();
+
+            // Invalidate settings cache so next repaint picks up changes
+            s_settingsCachedThisEvent = false;
         }
 
         private static void OnHierarchyWindowItemGUI(int instanceId, Rect selectionRect)
         {
-            if (!ImprovedHierarchySettings.Active)
+            if (NoodleHammer.Core.Editor.EditorTransitionGuard.IsUnsafeTransition())
                 return;
 
-            GameObject gameObject = ResolveObjectFromInstanceId(instanceId) as GameObject;
+            // Cache settings once per repaint event batch
+            CacheSettingsIfNeeded();
+
+            if (!s_cachedActive)
+                return;
+
+            // Cross-version compatible: EntityIdToObject on Unity 6+, InstanceIDToObject on 2022
+            GameObject gameObject = NoodleHammer.Core.Editor.EditorCompatibilityUtility.InstanceIDToObject(instanceId) as GameObject;
             if (gameObject == null)
                 return;
+
+            // Cache selection set once per event to avoid per-row array allocation from Selection.gameObjects
+            CacheSelectionIfNeeded();
 
             ImprovedHierarchyRowState rowState = BuildRowState(instanceId, selectionRect);
             DrawRowVisuals(selectionRect, rowState);
@@ -84,6 +114,47 @@ namespace NoodleHammer.Hierarchy.Editor
                 DrawMissingScriptBadge(selectionRect);
         }
 
+        private static void CacheSettingsIfNeeded()
+        {
+            // Use event identity to avoid re-caching within the same event batch
+            Event current = Event.current;
+            int eventHash = current != null ? current.GetHashCode() : 0;
+            EventType eventType = current != null ? current.type : EventType.Ignore;
+
+            if (s_settingsCachedThisEvent && eventType == s_lastCachedEventType && eventHash == s_lastCachedEventHash)
+                return;
+
+            s_cachedActive = ImprovedHierarchySettings.Active;
+            s_cachedEnableAlternatingRows = ImprovedHierarchySettings.EnableAlternatingRows;
+            s_cachedEnableRowDividers = ImprovedHierarchySettings.EnableRowDividers;
+            s_cachedEnableTreeGuides = ImprovedHierarchySettings.EnableTreeGuides;
+
+            Color baseGuide = ImprovedEditorTheme.HierarchyGuide;
+            s_cachedGuideColor = new Color(baseGuide.r, baseGuide.g, baseGuide.b, 0.28f);
+
+            s_settingsCachedThisEvent = true;
+            s_lastCachedEventType = eventType;
+            s_lastCachedEventHash = eventHash;
+        }
+
+        private static void CacheSelectionIfNeeded()
+        {
+            // Selection.gameObjects allocates a new array each access.
+            // Cache the instance IDs into a HashSet once, then use O(1) lookups per row.
+            int currentVersion = SelectionVersionTracker.Version;
+            if (currentVersion == s_cachedSelectionVersion && SelectionIdSet.Count > 0)
+                return;
+
+            s_cachedSelectionVersion = currentVersion;
+            SelectionIdSet.Clear();
+            GameObject[] selected = Selection.gameObjects;
+            for (int i = 0; i < selected.Length; i++)
+            {
+                if (selected[i] != null)
+                    SelectionIdSet.Add(selected[i].GetInstanceID());
+            }
+        }
+
         private static ImprovedHierarchyRowState BuildRowState(int instanceId, Rect selectionRect)
         {
             Rect fullRowRect = selectionRect;
@@ -96,7 +167,7 @@ namespace NoodleHammer.Hierarchy.Editor
 
             return new ImprovedHierarchyRowState
             {
-                IsSelected = IsGameObjectSelected(instanceId),
+                IsSelected = SelectionIdSet.Contains(instanceId),
                 IsHovered = fullRowRect.Contains(Event.current.mousePosition),
                 IsExpandArrowHovered = expandArrowRect.Contains(Event.current.mousePosition)
             };
@@ -106,7 +177,7 @@ namespace NoodleHammer.Hierarchy.Editor
         {
             if (rowState.IsSelected || (rowState.IsExpandArrowHovered && ImprovedHierarchyMouseState.IsMouseDown))
             {
-                if (Selection.gameObjects.Length > 1)
+                if (SelectionIdSet.Count > 1)
                     AdditionalSelectedInstanceIds.Clear();
 
                 AdditionalSelectedInstanceIds.Add(instanceId);
@@ -118,8 +189,8 @@ namespace NoodleHammer.Hierarchy.Editor
 
         private static void ClearOriginalIconSlot(ImprovedHierarchyRowState rowState, Rect selectionRect)
         {
-            int selectedCount = Selection.gameObjects.Length > 1
-                ? Selection.gameObjects.Length
+            int selectedCount = SelectionIdSet.Count > 1
+                ? SelectionIdSet.Count
                 : AdditionalSelectedInstanceIds.Count;
             Color background = ImprovedHierarchyBackgrounds.GetIconSlotBackground(rowState, s_hierarchyHasFocus, selectedCount);
 
@@ -128,79 +199,41 @@ namespace NoodleHammer.Hierarchy.Editor
             EditorGUI.DrawRect(backgroundRect, background);
         }
 
-        private static bool IsGameObjectSelected(int instanceId)
-        {
-            GameObject[] selectedGameObjects = Selection.gameObjects;
-            for (int i = 0; i < selectedGameObjects.Length; i++)
-            {
-                GameObject selectedGameObject = selectedGameObjects[i];
-                if (selectedGameObject != null && selectedGameObject.GetInstanceID() == instanceId)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static Object ResolveObjectFromInstanceId(int instanceId)
-        {
-            if (s_instanceIdToObjectMethod == null)
-            {
-                s_instanceIdToObjectMethod = typeof(EditorUtility).GetMethod(
-                    "InstanceIDToObject",
-                    BindingFlags.Static | BindingFlags.Public,
-                    null,
-                    new[] { typeof(int) },
-                    null);
-            }
-
-            return s_instanceIdToObjectMethod?.Invoke(null, new object[] { instanceId }) as Object;
-        }
-
         private static void DrawRowVisuals(Rect selectionRect, ImprovedHierarchyRowState rowState)
         {
             Rect fullRowRect = selectionRect;
             fullRowRect.x = 0f;
             fullRowRect.width = short.MaxValue;
 
-            if (ImprovedHierarchySettings.EnableAlternatingRows && !rowState.IsSelected && !rowState.IsHovered)
+            if (s_cachedEnableAlternatingRows && !rowState.IsSelected && !rowState.IsHovered)
             {
                 int rowIndex = Mathf.Max(0, Mathf.RoundToInt(selectionRect.y / Mathf.Max(1f, selectionRect.height)));
-                Color rowColor = (rowIndex & 1) == 0
-                    ? new Color(1f, 1f, 1f, 0.012f)
-                    : new Color(0f, 0f, 0f, 0.06f);
-                EditorGUI.DrawRect(fullRowRect, rowColor);
+                EditorGUI.DrawRect(fullRowRect, (rowIndex & 1) == 0 ? AlternatingRowEven : AlternatingRowOdd);
             }
 
-            if (ImprovedHierarchySettings.EnableRowDividers)
+            if (s_cachedEnableRowDividers)
             {
-                Color dividerColor = rowState.IsSelected
-                    ? new Color(1f, 1f, 1f, 0.10f)
-                    : new Color(1f, 1f, 1f, 0.06f);
                 EditorGUI.DrawRect(
                     new Rect(fullRowRect.x, selectionRect.yMax - 1f, fullRowRect.width, 1f),
-                    dividerColor);
+                    rowState.IsSelected ? DividerSelected : DividerNormal);
             }
         }
 
-        private static void DrawTreeGuides(UnityEngine.Transform transform, Rect selectionRect)
+        private static void DrawTreeGuides(Transform transform, Rect selectionRect)
         {
-            if (!ImprovedHierarchySettings.EnableTreeGuides || transform == null)
+            if (!s_cachedEnableTreeGuides || transform == null)
                 return;
 
-            UnityEngine.Transform parent = transform.parent;
+            Transform parent = transform.parent;
             if (parent == null)
                 return;
 
-            Color guideColor = new Color(
-                ImprovedEditorTheme.HierarchyGuide.r,
-                ImprovedEditorTheme.HierarchyGuide.g,
-                ImprovedEditorTheme.HierarchyGuide.b,
-                0.28f);
+            Color guideColor = s_cachedGuideColor;
             float centerY = Mathf.Round(selectionRect.y + selectionRect.height * 0.5f);
             float expandArrowX = selectionRect.x - ExpandArrowOffset;
             float currentColumnX = Mathf.Round(expandArrowX - TreeGuideColumnOffset);
 
-            UnityEngine.Transform ancestor = parent;
+            Transform ancestor = parent;
             float ancestorColumnX = currentColumnX - TreeIndentWidth;
             while (ancestor != null)
             {
@@ -247,7 +280,7 @@ namespace NoodleHammer.Hierarchy.Editor
             }
         }
 
-        private static bool HasNextSibling(UnityEngine.Transform transform)
+        private static bool HasNextSibling(Transform transform)
         {
             if (transform == null || transform.parent == null)
                 return false;
@@ -255,73 +288,12 @@ namespace NoodleHammer.Hierarchy.Editor
             return transform.GetSiblingIndex() < transform.parent.childCount - 1;
         }
 
-        private static bool HasVisibleExpandedChildren(UnityEngine.Transform transform)
+        private static bool HasVisibleExpandedChildren(Transform transform)
         {
             if (transform == null || transform.childCount == 0)
                 return false;
 
-            return IsHierarchyItemExpanded(transform.gameObject.GetInstanceID());
-        }
-
-        private static bool IsHierarchyItemExpanded(int instanceId)
-        {
-            object sceneHierarchy = GetSceneHierarchy();
-            if (sceneHierarchy == null)
-                return false;
-
-            if (s_sceneHierarchyIsExpandedMethod == null)
-            {
-                s_sceneHierarchyIsExpandedMethod = sceneHierarchy.GetType().GetMethod(
-                    "IsExpanded",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                    null,
-                    new[] { typeof(int) },
-                    null);
-            }
-
-            if (s_sceneHierarchyIsExpandedMethod == null)
-                return false;
-
-            object result = s_sceneHierarchyIsExpandedMethod.Invoke(sceneHierarchy, new object[] { instanceId });
-            return result is bool isExpanded && isExpanded;
-        }
-
-        private static object GetSceneHierarchy()
-        {
-            EditorWindow hierarchyWindow = ResolveHierarchyWindow();
-            if (hierarchyWindow == null)
-                return null;
-
-            if (s_sceneHierarchyProperty == null)
-            {
-                s_sceneHierarchyProperty = hierarchyWindow.GetType().GetProperty(
-                    "sceneHierarchy",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            }
-
-            return s_sceneHierarchyProperty?.GetValue(hierarchyWindow, null);
-        }
-
-        private static EditorWindow ResolveHierarchyWindow()
-        {
-            if (s_hierarchyWindow != null)
-                return s_hierarchyWindow;
-
-            if (SceneHierarchyWindowType == null)
-                return null;
-
-            EditorWindow focusedWindow = EditorWindow.focusedWindow;
-            if (focusedWindow != null && SceneHierarchyWindowType.IsInstanceOfType(focusedWindow))
-            {
-                s_hierarchyWindow = focusedWindow;
-                return s_hierarchyWindow;
-            }
-
-            Object[] hierarchyWindows = Resources.FindObjectsOfTypeAll(SceneHierarchyWindowType);
-            if (hierarchyWindows != null && hierarchyWindows.Length > 0)
-                s_hierarchyWindow = hierarchyWindows[0] as EditorWindow;
-
-            return s_hierarchyWindow;
+            return HierarchyReflectionBridge.IsHierarchyItemExpanded(transform.gameObject.GetInstanceID());
         }
 
         private static void DrawIcon(
@@ -335,7 +307,8 @@ namespace NoodleHammer.Hierarchy.Editor
             {
                 iconRect.width = 10f;
                 iconRect.height = 10f;
-                iconRect.position += new Vector2(7f, 7f);
+                iconRect.x += 7f;
+                iconRect.y += 7f;
             }
 
             Color previousColor = GUI.color;
@@ -344,12 +317,6 @@ namespace NoodleHammer.Hierarchy.Editor
 
             EditorGUI.LabelField(iconRect, content);
             GUI.color = previousColor;
-        }
-
-        private static bool IsHierarchyWindowFocused()
-        {
-            EditorWindow focusedWindow = EditorWindow.focusedWindow;
-            return focusedWindow != null && focusedWindow.GetType().Name == "SceneHierarchyWindow";
         }
 
         private static void DrawMissingScriptBadge(Rect selectionRect)
@@ -363,10 +330,13 @@ namespace NoodleHammer.Hierarchy.Editor
                 MissingBadgeWidth,
                 Mathf.Max(12f, selectionRect.height - 2f));
 
-            EditorGUI.DrawRect(badgeRect, new Color(0.72f, 0.32f, 0.16f, 0.95f));
-            ImprovedEditorTheme.DrawOutline(badgeRect, new Color(0f, 0f, 0f, 0.42f));
-            GUI.Label(badgeRect, new GUIContent("!", "Missing Script"), MissingBadgeStyle);
+            EditorGUI.DrawRect(badgeRect, MissingBadgeBackground);
+            ImprovedEditorTheme.DrawOutline(badgeRect, MissingBadgeBorder);
+            GUI.Label(badgeRect, MissingBadgeContent, MissingBadgeStyle);
         }
+
+        private static GUIContent MissingBadgeContent =>
+            s_missingBadgeContent ?? (s_missingBadgeContent = new GUIContent("!", "Missing Script"));
 
         private static GUIStyle MissingBadgeStyle =>
             s_missingBadgeStyle ?? (s_missingBadgeStyle = new GUIStyle(EditorStyles.miniBoldLabel)
@@ -374,6 +344,28 @@ namespace NoodleHammer.Hierarchy.Editor
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = Color.white }
             });
+    }
+
+    /// <summary>
+    /// Tracks Selection changes via selectionChanged callback to avoid re-building
+    /// the selection HashSet when nothing changed.
+    /// </summary>
+    [InitializeOnLoad]
+    internal static class SelectionVersionTracker
+    {
+        private static int s_version;
+
+        public static int Version => s_version;
+
+        static SelectionVersionTracker()
+        {
+            Selection.selectionChanged += OnSelectionChanged;
+        }
+
+        private static void OnSelectionChanged()
+        {
+            s_version++;
+        }
     }
 }
 #endif

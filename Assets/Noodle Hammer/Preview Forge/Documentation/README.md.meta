@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 61ff91b8646b40e296ea14acd3bfede6
+TextScriptImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Documentation/README.md
+  uploadId: 929392

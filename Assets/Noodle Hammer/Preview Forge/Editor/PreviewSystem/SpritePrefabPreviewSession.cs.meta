@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 6cdb89f48a26465ead03eb2d39fb9efa
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/PreviewSystem/SpritePrefabPreviewSession.cs
+  uploadId: 929392

@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: b4444444444444444444444444444444
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/Common/PreviewAssets/VisualModes/PrefabPreviewOverdraw.mat
+  uploadId: 929392

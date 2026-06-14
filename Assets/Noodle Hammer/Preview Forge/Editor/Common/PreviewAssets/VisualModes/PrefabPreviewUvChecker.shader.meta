@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: a2222222222222222222222222222222
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures: []
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/Common/PreviewAssets/VisualModes/PrefabPreviewUvChecker.shader
+  uploadId: 929392

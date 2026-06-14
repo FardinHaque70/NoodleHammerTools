@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: a4444444444444444444444444444444
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures: []
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 370342
+  packageName: 'Preview Forge: Thumbnails and Custom Previews for Unity'
+  packageVersion: 1.0
+  assetPath: Assets/Noodle Hammer/Preview Forge/Editor/Common/PreviewAssets/VisualModes/PrefabPreviewOverdraw.shader
+  uploadId: 929392
