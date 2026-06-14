@@ -3,15 +3,16 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityObject = UnityEngine.Object;
 
 namespace NoodleHammer.Core.Editor
 {
 	/// <summary>
-	/// Loads project-owned settings assets from Assets/ so Asset Store and UPM installs
-	/// share the same writable settings location. Handles deferred persistence when the
-	/// editor is compiling or updating.
+	/// Loads project-owned settings assets from AssetDatabase paths or serialized files
+	/// under ProjectSettings/. Handles deferred persistence when the editor is compiling
+	/// or updating, and can migrate legacy asset-backed settings into ProjectSettings.
 	/// </summary>
 	public static class ProjectSettingsAssetUtility
 	{
@@ -27,16 +28,20 @@ namespace NoodleHammer.Core.Editor
 
 		private static readonly Dictionary<string, PendingSettingsAsset> PendingAssetsByKey = new Dictionary<string, PendingSettingsAsset>();
 		private static readonly Dictionary<int, PendingSettingsAsset> PendingAssetsByInstanceId = new Dictionary<int, PendingSettingsAsset>();
+		private static readonly Dictionary<int, string> ManagedPathsByInstanceId = new Dictionary<int, string>();
 		private static bool s_persistScheduled;
 
 		/// <summary>
 		/// Loads a settings asset from disk, or creates a new in-memory instance and schedules it for persistence.
 		/// </summary>
-		public static T LoadOrCreate<T>(string assetPath, Action<T> initialize) where T : ScriptableObject
+		public static T LoadOrCreate<T>(string assetPath, Action<T> initialize, string legacyAssetPath = null) where T : ScriptableObject
 		{
-			T asset = AssetDatabase.LoadAssetAtPath<T>(assetPath);
+			T asset = LoadPersistedAsset<T>(assetPath);
 			if (asset != null)
+			{
+				RegisterManagedAsset(asset, assetPath);
 				return asset;
+			}
 
 			string key = MakeKey<T>(assetPath);
 			if (PendingAssetsByKey.TryGetValue(key, out PendingSettingsAsset pendingAsset) && pendingAsset.Asset != null)
@@ -45,6 +50,7 @@ namespace NoodleHammer.Core.Editor
 			asset = ScriptableObject.CreateInstance<T>();
 			asset.hideFlags = HideFlags.HideAndDontSave;
 			initialize?.Invoke(asset);
+			TryMigrateLegacyAsset(asset, legacyAssetPath);
 
 			pendingAsset = new PendingSettingsAsset
 			{
@@ -54,6 +60,7 @@ namespace NoodleHammer.Core.Editor
 			};
 			PendingAssetsByKey[key] = pendingAsset;
 			PendingAssetsByInstanceId[asset.GetInstanceID()] = pendingAsset;
+			RegisterManagedAsset(asset, assetPath);
 			SchedulePersistPendingAssets();
 
 			return asset;
@@ -73,6 +80,13 @@ namespace NoodleHammer.Core.Editor
 				if (!TryPersistPendingAsset(pendingAsset))
 					SchedulePersistPendingAssets();
 
+				return;
+			}
+
+			if (ManagedPathsByInstanceId.TryGetValue(asset.GetInstanceID(), out string managedPath) &&
+			    IsProjectSettingsPath(managedPath))
+			{
+				SaveProjectSettingsAsset(asset, managedPath);
 				return;
 			}
 
@@ -220,6 +234,58 @@ namespace NoodleHammer.Core.Editor
 			return typeof(T).FullName + "|" + assetPath;
 		}
 
+		private static bool IsProjectSettingsPath(string assetPath)
+		{
+			return !string.IsNullOrEmpty(assetPath) &&
+			       assetPath.Replace('\\', '/').StartsWith("ProjectSettings/", StringComparison.Ordinal);
+		}
+
+		private static T LoadPersistedAsset<T>(string assetPath) where T : ScriptableObject
+		{
+			if (IsProjectSettingsPath(assetPath))
+			{
+				UnityObject[] objects = InternalEditorUtility.LoadSerializedFileAndForget(assetPath);
+				for (int i = 0; i < objects.Length; i++)
+				{
+					if (objects[i] is T loadedAsset)
+						return loadedAsset;
+				}
+
+				return null;
+			}
+
+			return AssetDatabase.LoadAssetAtPath<T>(assetPath);
+		}
+
+		private static void TryMigrateLegacyAsset<T>(T target, string legacyAssetPath) where T : ScriptableObject
+		{
+			if (target == null || string.IsNullOrEmpty(legacyAssetPath))
+				return;
+
+			T legacyAsset = AssetDatabase.LoadAssetAtPath<T>(legacyAssetPath);
+			if (legacyAsset == null)
+				return;
+
+			EditorJsonUtility.FromJsonOverwrite(EditorJsonUtility.ToJson(legacyAsset), target);
+		}
+
+		private static void RegisterManagedAsset(UnityObject asset, string assetPath)
+		{
+			if (asset == null || string.IsNullOrEmpty(assetPath))
+				return;
+
+			ManagedPathsByInstanceId[asset.GetInstanceID()] = assetPath;
+		}
+
+		private static void SaveProjectSettingsAsset(UnityObject asset, string assetPath)
+		{
+			string directoryPath = Path.GetDirectoryName(assetPath);
+			if (!string.IsNullOrEmpty(directoryPath))
+				Directory.CreateDirectory(directoryPath);
+
+			InternalEditorUtility.SaveToSerializedFileAndForget(new[] { asset }, assetPath, true);
+		}
+
 		private static void SchedulePersistPendingAssets()
 		{
 			if (s_persistScheduled)
@@ -260,14 +326,23 @@ namespace NoodleHammer.Core.Editor
 
 			try
 			{
-				EnsureAssetFolder(Path.GetDirectoryName(pendingAsset.AssetPath)?.Replace('\\', '/'));
-				if (File.Exists(pendingAsset.AssetPath))
-					AssetDatabase.DeleteAsset(pendingAsset.AssetPath);
+				if (IsProjectSettingsPath(pendingAsset.AssetPath))
+				{
+					pendingAsset.Asset.hideFlags = HideFlags.None;
+					SaveProjectSettingsAsset(pendingAsset.Asset, pendingAsset.AssetPath);
+				}
+				else
+				{
+					EnsureAssetFolder(Path.GetDirectoryName(pendingAsset.AssetPath)?.Replace('\\', '/'));
+					if (File.Exists(pendingAsset.AssetPath))
+						AssetDatabase.DeleteAsset(pendingAsset.AssetPath);
 
-				pendingAsset.Asset.hideFlags = HideFlags.None;
-				AssetDatabase.CreateAsset(pendingAsset.Asset, pendingAsset.AssetPath);
-				EditorUtility.SetDirty(pendingAsset.Asset);
-				AssetDatabase.SaveAssets();
+					pendingAsset.Asset.hideFlags = HideFlags.None;
+					AssetDatabase.CreateAsset(pendingAsset.Asset, pendingAsset.AssetPath);
+					EditorUtility.SetDirty(pendingAsset.Asset);
+					AssetDatabase.SaveAssets();
+				}
+
 				RemovePendingAsset(pendingAsset);
 				return true;
 			}

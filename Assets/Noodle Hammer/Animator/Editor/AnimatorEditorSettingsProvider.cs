@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
+using Theme = NoodleHammer.Core.Editor.ImprovedEditorTheme;
 
 namespace NoodleHammer.Animator.Editor
 {
@@ -9,6 +10,9 @@ namespace NoodleHammer.Animator.Editor
 	/// </summary>
 	internal static class AnimatorEditorSettingsProvider
 	{
+		private static SerializedObject s_serializedObject;
+		private static bool s_playbackExpanded = true;
+
 		[SettingsProvider]
 		public static SettingsProvider CreateProvider()
 		{
@@ -19,8 +23,6 @@ namespace NoodleHammer.Animator.Editor
 				keywords = new[] { "Noodle", "Hammer", "Animator", "Playback", "Speed" }
 			};
 		}
-
-		private static SerializedObject s_serializedObject;
 
 		private static void DrawSettingsGUI(string searchContext)
 		{
@@ -33,25 +35,39 @@ namespace NoodleHammer.Animator.Editor
 
 			s_serializedObject.Update();
 
-			EditorGUILayout.Space(8f);
-
-			ImprovedEditorTheme.DrawInspectorHeader(
-				"Noodle Hammer Animator Editor",
-				"Configure the custom Animator inspector's playback and preview behavior.",
-				storage.enabled);
-
-			EditorGUILayout.Space(4f);
-
 			SerializedProperty enabledProp = s_serializedObject.FindProperty("enabled");
 			SerializedProperty speedProp = s_serializedObject.FindProperty("defaultPlaybackSpeed");
 			SerializedProperty expandProp = s_serializedObject.FindProperty("expandPlaybackByDefault");
+			bool isEnabled = enabledProp != null && enabledProp.boolValue;
 
-			EditorGUILayout.PropertyField(enabledProp, new GUIContent("Enabled", "Enable or disable the custom Animator inspector."));
+			EditorGUILayout.Space(8f);
+			Theme.DrawInspectorHeader(
+				"Noodle Hammer Animator Editor",
+				"Configure the custom Animator inspector playback and preview behavior.",
+				isEnabled);
+			Theme.DrawToggleHeader(enabledProp);
 
-			EditorGUI.BeginDisabledGroup(!enabledProp.boolValue);
-			EditorGUILayout.Slider(speedProp, 0.01f, 10f, new GUIContent("Default Playback Speed", "Default speed for animation preview playback."));
-			EditorGUILayout.PropertyField(expandProp, new GUIContent("Expand Playback By Default", "Whether the playback section is expanded by default."));
-			EditorGUI.EndDisabledGroup();
+			s_playbackExpanded = Theme.DrawSectionHeader(
+				s_playbackExpanded,
+				"Playback",
+				"Default preview playback controls for the Animator inspector.",
+				isEnabled);
+			if (s_playbackExpanded)
+			{
+				Theme.BeginSectionBody(true);
+				using (new EditorGUI.DisabledScope(!isEnabled))
+				{
+					EditorGUILayout.Slider(
+						speedProp,
+						0.01f,
+						10f,
+						new GUIContent("Default Playback Speed", "Default speed for animation preview playback."));
+					EditorGUILayout.PropertyField(
+						expandProp,
+						new GUIContent("Expand Playback By Default", "Whether the playback section is expanded by default."));
+				}
+				Theme.EndSectionBody();
+			}
 
 			EditorGUILayout.Space(12f);
 			if (GUILayout.Button("Reset To Defaults", GUILayout.Height(28f)) &&
@@ -70,17 +86,12 @@ namespace NoodleHammer.Animator.Editor
 						storage.defaultPlaybackSpeed = AnimatorEditorSettings.D_DefaultPlaybackSpeed;
 						storage.expandPlaybackByDefault = AnimatorEditorSettings.D_ExpandPlaybackByDefault;
 					},
-					() =>
-					{
-						NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(storage);
-					});
+					() => { NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(storage); });
 				s_serializedObject.Update();
 			}
 
 			if (s_serializedObject.ApplyModifiedProperties())
-			{
 				NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(storage);
-			}
 		}
 	}
 }

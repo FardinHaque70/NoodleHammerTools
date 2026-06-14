@@ -8,7 +8,8 @@ namespace NoodleHammer.Animator.Editor
 	/// </summary>
 	public sealed class AnimatorEditorSettingsStorage : ScriptableObject
 	{
-		private const string AssetPath = "Assets/Noodle Hammer/Animator/Settings/Animator Editor Settings.asset";
+		private const string AssetPath = "ProjectSettings/NoodleHammer/AnimatorEditorSettings.asset";
+		private const string LegacyAssetPath = "Assets/Noodle Hammer/Animator/Settings/Animator Editor Settings.asset";
 
 		[SerializeField] internal bool enabled = AnimatorEditorSettings.D_Enabled;
 		[SerializeField] internal float defaultPlaybackSpeed = AnimatorEditorSettings.D_DefaultPlaybackSpeed;
@@ -26,7 +27,7 @@ namespace NoodleHammer.Animator.Editor
 				if (s_instance == null)
 				{
 					s_instance = NoodleHammer.Core.Editor.ProjectSettingsAssetUtility
-						.LoadOrCreate<AnimatorEditorSettingsStorage>(AssetPath, Initialize);
+						.LoadOrCreate<AnimatorEditorSettingsStorage>(AssetPath, Initialize, LegacyAssetPath);
 				}
 
 				return s_instance;

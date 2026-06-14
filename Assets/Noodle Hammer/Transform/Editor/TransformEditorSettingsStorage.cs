@@ -8,7 +8,8 @@ namespace NoodleHammer.Transform.Editor
 	/// </summary>
 	public sealed class TransformEditorSettingsStorage : ScriptableObject
 	{
-		private const string AssetPath = "Assets/Noodle Hammer/Transform/Settings/Transform Editor Settings.asset";
+		private const string AssetPath = "ProjectSettings/NoodleHammer/TransformEditorSettings.asset";
+		private const string LegacyAssetPath = "Assets/Noodle Hammer/Transform/Settings/Transform Editor Settings.asset";
 
 		[SerializeField] internal bool enabled = TransformEditorSettings.D_Enabled;
 
@@ -24,7 +25,7 @@ namespace NoodleHammer.Transform.Editor
 				if (s_instance == null)
 				{
 					s_instance = NoodleHammer.Core.Editor.ProjectSettingsAssetUtility
-						.LoadOrCreate<TransformEditorSettingsStorage>(AssetPath, Initialize);
+						.LoadOrCreate<TransformEditorSettingsStorage>(AssetPath, Initialize, LegacyAssetPath);
 				}
 
 				return s_instance;

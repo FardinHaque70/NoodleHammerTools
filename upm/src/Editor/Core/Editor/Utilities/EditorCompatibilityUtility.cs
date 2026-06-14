@@ -1,3 +1,4 @@
+using System;
 using UnityEditor;
 using UnityEditorInternal;
 using UnityEngine;
@@ -13,6 +14,10 @@ namespace NoodleHammer.Core.Editor
 	{
 		private static readonly MethodInfo EntityIdToObjectMethod =
 			typeof(EditorUtility).GetMethod("EntityIdToObject", BindingFlags.Public | BindingFlags.Static);
+		private static readonly Type EntityIdType =
+			typeof(UnityEngine.Object).Assembly.GetType("UnityEngine.EntityId");
+		private static readonly MethodInfo IntToEntityIdImplicitMethod =
+			EntityIdType?.GetMethod("op_Implicit", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(int) }, null);
 
 		/// <summary>
 		/// Forces a repaint on all editor views including the Scene View.
@@ -27,11 +32,25 @@ namespace NoodleHammer.Core.Editor
 		/// Resolves a UnityEngine.Object from an instance/entity ID.
 		/// Uses EditorUtility.EntityIdToObject on Unity 6+ and EditorUtility.InstanceIDToObject on older versions.
 		/// </summary>
-		public static Object InstanceIDToObject(int instanceId)
+		public static UnityEngine.Object InstanceIDToObject(int instanceId)
 		{
 			if (EntityIdToObjectMethod != null)
 			{
-				return EntityIdToObjectMethod.Invoke(null, new object[] { instanceId }) as Object;
+				ParameterInfo[] parameters = EntityIdToObjectMethod.GetParameters();
+				if (parameters.Length == 1)
+				{
+					Type parameterType = parameters[0].ParameterType;
+					if (parameterType == typeof(int))
+							return EntityIdToObjectMethod.Invoke(null, new object[] { instanceId }) as UnityEngine.Object;
+
+					if (EntityIdType != null &&
+					    parameterType == EntityIdType &&
+					    IntToEntityIdImplicitMethod != null)
+					{
+						object entityId = IntToEntityIdImplicitMethod.Invoke(null, new object[] { instanceId });
+						return EntityIdToObjectMethod.Invoke(null, new[] { entityId }) as UnityEngine.Object;
+					}
+				}
 			}
 
 			return EditorUtility.InstanceIDToObject(instanceId);

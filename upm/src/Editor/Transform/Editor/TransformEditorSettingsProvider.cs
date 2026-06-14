@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
+using Theme = NoodleHammer.Core.Editor.ImprovedEditorTheme;
 
 namespace NoodleHammer.Transform.Editor
 {
@@ -33,15 +34,15 @@ namespace NoodleHammer.Transform.Editor
 
 			s_serializedObject.Update();
 
-			EditorGUILayout.Space(8f);
-
-			EditorGUILayout.LabelField("Noodle Hammer Transform Editor", EditorStyles.boldLabel);
-			EditorGUILayout.LabelField("Configure the custom Transform inspector toolbar and copy/paste behavior.", EditorStyles.wordWrappedMiniLabel);
-
-			EditorGUILayout.Space(4f);
-
 			SerializedProperty enabledProp = s_serializedObject.FindProperty("enabled");
-			EditorGUILayout.PropertyField(enabledProp, new GUIContent("Enabled", "Enable or disable the custom Transform inspector."));
+			bool isEnabled = enabledProp != null && enabledProp.boolValue;
+
+			EditorGUILayout.Space(8f);
+			Theme.DrawInspectorHeader(
+				"Noodle Hammer Transform Editor",
+				"Configure the custom Transform inspector toolbar and copy or paste behavior.",
+				isEnabled);
+			Theme.DrawToggleHeader(enabledProp);
 
 			EditorGUILayout.Space(12f);
 			if (GUILayout.Button("Reset To Defaults", GUILayout.Height(28f)) &&
@@ -60,9 +61,7 @@ namespace NoodleHammer.Transform.Editor
 			}
 
 			if (s_serializedObject.ApplyModifiedProperties())
-			{
 				NoodleHammer.Core.Editor.ProjectSettingsAssetUtility.Save(storage);
-			}
 		}
 	}
 }
